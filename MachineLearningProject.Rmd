@@ -1,0 +1,182 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Sumeet Shah"
+date: "Thursday, September 24, 2015"
+output: html_document
+---
+
+##Introduction
+
+This is the Course Project for the Coursera Practical Machine Learning course.  In this project, we will be using exercise form data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. Using the data gathered we will construct two prediction models and then use the better of the two to try and predict the outcome of an out of sample data set.
+
+##Loading Packages
+
+First, we must load the R packages that we will be using for our analysis. As I have them installed already, I can simply load them using the library() function. If you need to install the packages, use the install.packages() function
+```{r, echo=FALSE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+```
+
+To replicate my results, set the seed as follows:
+```{r}
+set.seed(42)
+```
+
+##Loading the Data
+
+Training Data URL:
+```{r, cache=TRUE}
+trainingDataURL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+```
+
+Testing Data URL:
+```{r, cache=TRUE}
+testingDataURL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+```
+
+Load the Data:
+```{r, cache=TRUE}
+training <- read.csv(url(trainingDataURL), na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv(url(testingDataURL), na.strings=c("NA","#DIV/0!",""))
+```
+
+##Partitioning the Data
+
+First we partition the data into a set of training data that we will use to build our model, and a set of testing data that we will test the model on before using it to try and predict actual outcomes.  I have elected to use 60% of the data as training data and 40% as testing data.
+```{r, cache=TRUE}
+inTraining <- createDataPartition(y=training$classe, p = 0.6, list = FALSE)
+trainingData <- training[inTraining,]
+testingData <- training[-inTraining,]
+dim(trainingData)
+dim(testingData)
+```
+
+##Pre-Processing/Cleaning the Data:
+
+First, we must eliminate the first column of the dataset, as it is an ID column and has no other relationship to the data.  By eliminating it, we prevent it from impacting the machine learning algorithms.
+```{r, cache=TRUE}
+trainingData$X <- NULL
+```
+
+Next, we want to eliminate any variables from the training data that have too many NA values. I have selected 70% NA to be the threshold for "too many."
+```{r, cache=TRUE}
+trainingDataCopy <- trainingData
+for(i in 1:length(trainingData)){
+        if(sum(is.na(trainingData[, i]))/nrow(trainingData)>=.7){
+        for(j in 1:length(trainingDataCopy)) {
+            if(length(grep(names(trainingData[i]), names(trainingDataCopy)[j]))==1){
+                trainingDataCopy <- trainingDataCopy[, -j] #Remove that column
+            }   
+        } 
+    }
+}
+trainingData <- trainingDataCopy
+dim(trainingData)
+```
+
+Finally, we need to filter out any of the Near Zero Variance variables from the table. We do this using the nearZeroVar function.
+```{r, cache=TRUE}
+trainingDataNZV<-nearZeroVar(trainingData, saveMetrics = FALSE)
+names(trainingData)[trainingDataNZV[1]]
+trainingData$new_window<-NULL
+dim(trainingData)
+```
+
+Now that we have decided which columns/variables are relevant and will be used in building our algorithm in the training set, let's go ahead and eliminate the unecessary variables from testing data sets as well.
+```{r, cache=TRUE}
+relevantVars <- colnames(trainingData)
+testingData<-testingData[,relevantVars]
+dim(testingData)
+relevantVars <- colnames(trainingData[,-58])
+testing<-testing[,relevantVars]
+dim(testing)
+```
+
+##Machine Learning Algorithms: Decision Tree
+
+The first method we will try is fitting using a Decision Tree.  We will fit a model to the data to predict the classe variable using the other remaining variables using the rpart function and then plotting it with the fancyRpartPlot function.
+```{r, cache=TRUE}
+treeModelFit<-rpart(classe ~ ., data = trainingData, method="class")
+fancyRpartPlot(treeModelFit)
+```
+
+Using the model, we'll make predictions on the testing data.
+```{r, cache=TRUE}
+treeModelPredictions <- predict(treeModelFit, testingData, type = "class")
+```
+
+Finally we'll use confusionMatrix to test the accuracy of our predictions
+```{r, cache=TRUE}
+confusionMatrix(treeModelPredictions, testingData$classe)
+```
+
+From the Overall Statistics, we can see that the accuracy of this model is 0.8833 or 88.33%.
+
+##Machine Learning Algorithms: Random Forest
+
+We can probably do better with a Random Forest algorithm.
+```{r, cache=TRUE}
+forestModelFit <- randomForest(classe ~., data = trainingData)
+forestModelPredictions <- predict(forestModelFit, testingData, type = "class")
+```
+
+Now let's test the random forest model with confusionMatrix to test the predictions:
+```{r, cache=TRUE}
+confusionMatrix(forestModelPredictions, testingData$classe)
+```
+
+As is revealed from the Overall statistics, this model is much better than the Decision Tree model, with an accuracy of 0.9973 or 99.73%.
+
+##Out of Sample Error
+
+The Out of Sample Errors are the error rates that we saw when we applied the models we developed to the testing data.
+
+Decision Tree Model Out of Sample Error:
+```{r}
+1-0.8833
+```
+
+Random Forest Model Out of Sample Error:
+```{r}
+1-.9973
+```
+
+##Using the Algorithm to Predict for the Assignment
+
+Before we can make any predictions, we must force all of the data from the training data we used and the testing data that we will be predicting for the assignment into the same type to ensure that the prediction function will work.
+```{r, cache=TRUE}
+for (i in 1:length(testing)){
+    for(j in 1:length(trainingData)){
+        if(length(grep(names(trainingData[i]), names(testing)[j])) == 1){
+            class(testing[j]) <- class(trainingData[i])
+        }      
+    }      
+}
+testing <- rbind(trainingData[2, -58] , testing)
+testing <- testing[-1,]
+```
+
+Of the two models we constructed, the Random Forest model is by far more accurate. So, we use it to predict the Course Project assignment values.
+
+```{r, cache=TRUE}
+assignmentPredictions <- predict(forestModelFit, testing, type = "class")
+assignmentPredictions
+```
+
+##Text File Output
+
+Using the function provided in the assignment, we can generate text files for submission on the course website.
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(assignmentPredictions)
+```
